@@ -1,0 +1,14 @@
+# ARIA — Phase 1 (Core Foundation) minimal dependencies.
+# Enough to run: text CLI agent, Claude tool use, SQLite memory,
+# web search, system info, shell commands, basic file reads, clipboard.
+
+openai>=1.40.0
+python-dotenv>=1.0.1
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+ddgs>=6.0.0
+psutil>=6.0.0
+pyperclip>=1.9.0
+send2trash>=1.8.3
+beautifulsoup4>=4.12.3
+httpx>=0.27.0

@@ -1,0 +1,49 @@
+# ARIA — full dependency set (all phases).
+# For Phase 1 only, use requirements-phase1.txt for a faster, lighter install.
+
+# LLM (OpenRouter via the OpenAI-compatible SDK; anthropic optional)
+openai>=1.40.0
+anthropic>=0.40.0
+
+# Voice (Phase 4)
+faster-whisper>=1.0.0
+edge-tts>=6.1.9
+pyttsx3>=2.90
+openwakeword>=0.6.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
+
+# Web (Phase 3) — ddgs is the current name of duckduckgo-search
+ddgs>=6.0.0
+playwright>=1.45.0
+beautifulsoup4>=4.12.3
+httpx>=0.27.0
+
+# Memory (Phase 6 semantic)
+chromadb>=0.5.0
+
+# Scheduling (Phase 6)
+apscheduler>=3.10.4
+python-dateutil>=2.9.0
+
+# GUI (Phase 5)
+PyQt6>=6.7.0
+
+# System tools
+pyperclip>=1.9.0
+pyautogui>=0.9.54
+Pillow>=10.4.0
+psutil>=6.0.0
+pytesseract>=0.3.13
+send2trash>=1.8.3
+pywin32>=306 ; sys_platform == "win32"
+
+# Config
+python-dotenv>=1.0.1
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+
+# Office documents (Phase 2 readers)
+python-docx>=1.1.2
+openpyxl>=3.1.5
+pypdf>=4.0.0

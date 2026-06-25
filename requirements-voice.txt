@@ -1,0 +1,18 @@
+# ARIA — Phase 4 (Voice) dependencies.
+# Install on top of requirements-phase1.txt.
+
+# STT (local, offline) — pulls ctranslate2 + tokenizers, no PyTorch needed
+faster-whisper>=1.0.0
+
+# TTS
+edge-tts>=6.1.9          # high-quality online neural voices
+pyttsx3>=2.90            # offline SAPI5 fallback (always works on Windows)
+playsound3>=2.0.0        # plays edge-tts mp3 output
+
+# Wake word (no API key)
+openwakeword>=0.6.0
+
+# Audio I/O
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.26

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($exe = \"$env:TEMP\\\\python-3.12.7-amd64.exe\"; $args = @\\(\"/quiet\",\"InstallAllUsers=0\",\"PrependPath=0\",\"Include_test=0\",\"Include_launcher=1\",\"AssociateFiles=0\",\"Shortcuts=0\"\\); Write-Output \"Installing...\"; $p = Start-Process -FilePath $exe -ArgumentList $args -Wait -PassThru; \"Exit code: $\\($p.ExitCode\\)\")"
+    ]
+  }
+}
