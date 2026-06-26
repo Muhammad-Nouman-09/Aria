@@ -60,8 +60,10 @@ res_blocked = execute_tool("run_shell_command", {"command": "format c:"}, ctx)
 check("blocked shell returns notice", "blocked" in res_blocked.lower())
 res_todo = execute_tool("manage_todo", {"action": "list"}, ctx)
 check("manage_todo dispatch", "todos" in res_todo)
-res_stub = execute_tool("take_screenshot", {"ocr": False}, ctx)
-check("unimplemented tool degrades gracefully", "not available" in res_stub.lower())
+res_stub = execute_tool("not_a_real_tool", {}, ctx)
+check("unknown tool degrades gracefully",
+      isinstance(res_stub, str) and any(
+          k in res_stub.lower() for k in ("denied", "error", "no handler", "blocked")))
 
 mem.close()
 print()

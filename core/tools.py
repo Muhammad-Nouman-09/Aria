@@ -14,18 +14,15 @@ from config import Settings
 from core.memory import Memory
 from core.permissions import PermissionManager, Risk
 from modules.filesystem import reader, writer
-from modules.system import apps, clipboard, shell, sysinfo
+from modules.integrations.email import EmailClient
+from modules.system import apps, clipboard, screen, shell, sysinfo
+from modules.tasks.todo import TodoManager
 from modules.web import download, scraper, search
 
 MAX_RESULT_CHARS = 10_000
 
-# Tools whose backend handler arrives in a later phase.
-NOT_YET_IMPLEMENTED = {
-    "take_screenshot": "Screenshots arrive in Phase 6.",
-    "set_reminder": "Reminders arrive in Phase 6.",
-    "read_email": "Email arrives in Phase 7.",
-    "send_email": "Email arrives in Phase 7.",
-}
+# Every declared tool now has a handler.
+NOT_YET_IMPLEMENTED: dict[str, str] = {}
 
 
 @dataclass
@@ -33,6 +30,7 @@ class ToolContext:
     settings: Settings
     memory: Memory
     permissions: PermissionManager
+    scheduler: object | None = None
 
 
 def _stringify(obj) -> str:
@@ -72,6 +70,12 @@ def _preview(tool_name: str, ti: dict) -> str:
         return f"Write to clipboard ({len(content)} chars):\n  {content[:200]}"
     if tool_name == "remember_fact":
         return f"Remember [{ti.get('category', 'other')}]: {ti.get('fact')}"
+    if tool_name == "set_reminder":
+        return (f"Reminder: {ti.get('message')}\n"
+                f"  when: {ti.get('datetime_str')}  repeat: {ti.get('repeat', 'none')}")
+    if tool_name == "send_email":
+        return (f"Send email\n  to: {ti.get('to')}\n  cc: {ti.get('cc', '')}\n"
+                f"  subject: {ti.get('subject')}\n\n{str(ti.get('body', ''))[:500]}")
     return json.dumps(ti, ensure_ascii=False)
 
 
@@ -180,23 +184,38 @@ def _run(tool_name: str, ti: dict, ctx: ToolContext):
 
     # ----- todos -----
     if tool_name == "manage_todo":
-        return _manage_todo(ti, ctx)
+        return TodoManager(ctx.memory).handle(
+            ti.get("action"), ti.get("task"), ti.get("task_id"),
+            ti.get("priority", "medium"))
+
+    # ----- reminders -----
+    if tool_name == "set_reminder":
+        return _set_reminder(ti, ctx)
+
+    # ----- screen -----
+    if tool_name == "take_screenshot":
+        return screen.take_screenshot(ti.get("save_path"), ti.get("ocr", False))
+
+    # ----- email -----
+    if tool_name == "read_email":
+        return EmailClient(ctx.settings).read_email(
+            ti.get("folder", "INBOX"), ti.get("max_emails", 10),
+            ti.get("unread_only", True), ti.get("search_query"))
+    if tool_name == "send_email":
+        return EmailClient(ctx.settings).send_email(
+            ti["to"], ti["subject"], ti["body"], ti.get("cc"))
 
     return {"error": f"No handler for tool '{tool_name}'."}
 
 
-def _manage_todo(ti: dict, ctx: ToolContext):
-    action = ti.get("action")
-    m = ctx.memory
-    if action == "add":
-        tid = m.add_todo(ti["task"], ti.get("priority", "medium"))
-        return {"status": "added", "id": tid}
-    if action == "list":
-        return {"todos": m.list_todos()}
-    if action == "complete":
-        return {"completed": m.complete_todo(int(ti["task_id"]))}
-    if action == "delete":
-        return {"deleted": m.delete_todo(int(ti["task_id"]))}
-    if action == "clear_completed":
-        return {"cleared": m.clear_completed_todos()}
-    return {"error": f"Unknown todo action: {action}"}
+def _set_reminder(ti: dict, ctx: ToolContext):
+    if ctx.scheduler is None:
+        return {"error": "The reminder scheduler is not available."}
+    from modules.tasks.scheduler import parse_when
+    try:
+        when = parse_when(ti["datetime_str"])
+    except ValueError as e:
+        return {"error": str(e)}
+    info = ctx.scheduler.add(ti["message"], when, ti.get("repeat", "none"))
+    return {"status": "reminder set", **info, "human_time":
+            when.strftime("%A, %d %B %Y, %I:%M %p")}

@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self.resize(720, 640)
         self.setStyleSheet(STYLE)
 
+        self._build_menu()
         self._build_ui()
 
         # Agent with the GUI approver + tool observer.
@@ -77,6 +78,21 @@ class MainWindow(QMainWindow):
             f"ARIA ready · model {settings.model}. Type a message and press Enter.")
 
     # ----- UI construction -----
+    def _build_menu(self) -> None:
+        tools = self.menuBar().addMenu("Tools")
+        act_settings = tools.addAction("Settings…")
+        act_settings.triggered.connect(self._open_settings)
+        act_audit = tools.addAction("Audit log…")
+        act_audit.triggered.connect(self._open_audit)
+
+    def _open_settings(self) -> None:
+        from ui.settings_dialog import SettingsDialog
+        SettingsDialog(self.settings, self).exec()
+
+    def _open_audit(self) -> None:
+        from ui.audit_dialog import AuditDialog
+        AuditDialog(self.agent.memory, self).exec()
+
     def _build_ui(self) -> None:
         central = QWidget()
         root = QVBoxLayout(central)

@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Project root = directory containing this file.
 ROOT_DIR = Path(__file__).resolve().parent
+ENV_PATH = ROOT_DIR / ".env"
 DATA_DIR = ROOT_DIR / "data"
 LOGS_DIR = DATA_DIR / "logs"
 CHROMA_DIR = DATA_DIR / "chroma"
@@ -93,6 +94,15 @@ class Settings(BaseSettings):
     # ----- Scheduling -----
     reminder_check_interval_seconds: int = Field(default=30, alias="REMINDER_CHECK_INTERVAL_SECONDS")
 
+    # ----- Email (optional, Phase 7) -----
+    email_enabled: bool = Field(default=False, alias="EMAIL_ENABLED")
+    email_address: str = Field(default="", alias="EMAIL_ADDRESS")
+    email_password: str = Field(default="", alias="EMAIL_PASSWORD")
+    imap_host: str = Field(default="", alias="IMAP_HOST")
+    imap_port: int = Field(default=993, alias="IMAP_PORT")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=465, alias="SMTP_PORT")
+
     @field_validator("allowed_directories", "blocked_directories", mode="before")
     @classmethod
     def _parse_dir_lists(cls, v):
@@ -103,6 +113,11 @@ class Settings(BaseSettings):
         key = (self.openrouter_api_key or "").strip()
         return bool(key) and key != "your_key_here"
 
+    @property
+    def has_email(self) -> bool:
+        return bool(self.email_enabled and self.email_address
+                    and self.email_password and self.imap_host)
+
     def ensure_dirs(self) -> None:
         """Create the data/log/model directories if they do not exist."""
         for d in (DATA_DIR, LOGS_DIR, CHROMA_DIR, MODELS_DIR):
@@ -110,6 +125,26 @@ class Settings(BaseSettings):
 
 
 _settings: Settings | None = None
+
+
+def update_env_value(key: str, value: str, env_path: Path | None = None) -> None:
+    """Insert or update a KEY=value line in the .env file, preserving the rest."""
+    path = Path(env_path) if env_path is not None else ENV_PATH
+    line = f"{key}={value}"
+    if not path.exists():
+        path.write_text(line + "\n", encoding="utf-8")
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    prefix = f"{key}="
+    replaced = False
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith(prefix):
+            lines[i] = line
+            replaced = True
+            break
+    if not replaced:
+        lines.append(line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def get_settings() -> Settings:

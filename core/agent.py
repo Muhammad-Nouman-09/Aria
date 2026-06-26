@@ -12,7 +12,7 @@ import json
 import uuid
 from typing import Callable
 
-from config import DB_PATH, Settings, get_settings
+from config import CHROMA_DIR, DB_PATH, Settings, get_settings
 from core.context_builder import build_system_prompt
 from core.llm import LLMClient
 from core.memory import Memory
@@ -28,18 +28,41 @@ MAX_TOOL_ITERATIONS = 12
 
 class Agent:
     def __init__(self, settings: Settings | None = None,
-                 approver=None, on_tool: ToolObserver | None = None):
+                 approver=None, on_tool: ToolObserver | None = None,
+                 on_reminder: Callable[[str], None] | None = None):
         self.settings = settings or get_settings()
-        self.memory = Memory(DB_PATH)
+        self.memory = Memory(
+            DB_PATH,
+            semantic=self.settings.semantic_memory_enabled,
+            chroma_dir=CHROMA_DIR,
+        )
         self.permissions = PermissionManager(self.settings, approver=approver)
         self.llm = LLMClient(self.settings)
-        self.ctx = ToolContext(self.settings, self.memory, self.permissions)
-        self.session_id = uuid.uuid4().hex
         self.on_tool = on_tool
+        self.session_id = uuid.uuid4().hex
+
+        # Reminder scheduler (Phase 6). Best-effort: if APScheduler is missing
+        # the agent still runs, set_reminder just reports it's unavailable.
+        self.scheduler = None
+        try:
+            from modules.tasks.scheduler import ReminderScheduler
+            self.scheduler = ReminderScheduler(
+                self.memory, on_fire=on_reminder or _default_reminder)
+            self.scheduler.start()
+        except Exception:
+            self.scheduler = None
+
+        self.ctx = ToolContext(self.settings, self.memory, self.permissions,
+                               scheduler=self.scheduler)
         # Structured running history for the tool-use loop.
         self.messages: list[dict] = []
 
     def close(self) -> None:
+        if self.scheduler is not None:
+            try:
+                self.scheduler.shutdown()
+            except Exception:
+                pass
         self.memory.close()
 
     def _notify(self, phase: str, name: str, info: str = "") -> None:
@@ -101,6 +124,11 @@ class Agent:
         final_text = (final_text or "").strip() or "(no response)"
         self.memory.add_message(self.session_id, "assistant", final_text)
         return final_text
+
+
+def _default_reminder(message: str) -> None:
+    """Console reminder notifier; the GUI/voice layers can supply their own."""
+    print(f"\n\033[1;33m[REMINDER] {message}\033[0m\n")
 
 
 def _parse_args(raw) -> dict:

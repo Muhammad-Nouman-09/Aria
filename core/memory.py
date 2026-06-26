@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS user_profile (
 class Memory:
     """Thread-safe SQLite wrapper. One connection guarded by a lock."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, semantic: bool = False,
+                 chroma_dir: str | Path | None = None,
+                 embedding_function=None):
         self.db_path = str(db_path)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -82,6 +84,27 @@ class Memory:
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._conn.commit()
+
+        # Optional ChromaDB semantic index. Falls back to keyword recall if
+        # unavailable for any reason.
+        self.semantic = None
+        if semantic and chroma_dir is not None:
+            try:
+                from core.semantic import SemanticStore
+                self.semantic = SemanticStore(chroma_dir, embedding_function)
+                self._backfill_semantic()
+            except Exception:
+                self.semantic = None
+
+    def _backfill_semantic(self) -> None:
+        """Index any facts that predate the semantic store."""
+        if self.semantic is None or self.semantic.count() > 0:
+            return
+        for row in self.all_facts(limit=1000):
+            try:
+                self.semantic.add(row["id"], row["fact"], row["category"])
+            except Exception:
+                break
 
     def close(self) -> None:
         with self._lock:
@@ -118,13 +141,40 @@ class Memory:
                 (fact, category, source),
             )
             self._conn.commit()
-            return int(cur.lastrowid)
+            fact_id = int(cur.lastrowid)
+        if self.semantic is not None:
+            try:
+                self.semantic.add(fact_id, fact, category)
+            except Exception:
+                pass
+        return fact_id
 
     def recall_facts(self, query: str, limit: int = 10) -> list[dict]:
-        """Keyword recall. Splits query into terms and OR-matches them.
+        """Recall relevant facts: semantic (ChromaDB) when available, else
+        keyword matching."""
+        if self.semantic is not None:
+            try:
+                results = self.semantic.query(query, k=limit)
+                if results:
+                    self._touch_facts([r["id"] for r in results])
+                    return results
+            except Exception:
+                pass
+        return self._recall_keyword(query, limit)
 
-        Replaced/augmented by ChromaDB semantic search in Phase 6.
-        """
+    def _touch_facts(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE facts SET last_accessed = ? "
+                f"WHERE id IN ({','.join('?' * len(ids))})",
+                [datetime.now().isoformat(), *ids],
+            )
+            self._conn.commit()
+
+    def _recall_keyword(self, query: str, limit: int = 10) -> list[dict]:
+        """Keyword recall. Splits query into terms and OR-matches them."""
         terms = [t for t in query.lower().split() if len(t) > 2]
         with self._lock:
             if not terms:
@@ -203,6 +253,34 @@ class Memory:
             self._conn.commit()
             return cur.rowcount
 
+    # ----- Reminders -----
+    def add_reminder(self, message: str, trigger_at: str,
+                     repeat: str = "none") -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO reminders (message, trigger_at, repeat) "
+                "VALUES (?, ?, ?)",
+                (message, trigger_at, repeat),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def active_reminders(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM reminders WHERE status = 'active' "
+                "ORDER BY trigger_at"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_reminder_status(self, reminder_id: int, status: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE reminders SET status = ? WHERE id = ?",
+                (status, reminder_id),
+            )
+            self._conn.commit()
+
     # ----- Audit log -----
     def log_audit(self, action: str, details: dict | None = None,
                   approved_by: str = "auto", result: str = "success") -> None:
@@ -213,6 +291,15 @@ class Memory:
                 (action, json.dumps(details or {}), approved_by, result),
             )
             self._conn.commit()
+
+    def recent_audit(self, limit: int = 100) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT timestamp, action, approved_by, result, details "
+                "FROM audit_log ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     # ----- User profile -----
     def set_profile(self, key: str, value: str) -> None:
